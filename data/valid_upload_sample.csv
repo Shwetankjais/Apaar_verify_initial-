@@ -1,0 +1,4 @@
+apaar_id,student_name,institution_student_id,course_code,academic_year,admission_date,category,seat_type,is_nri_oci_fn
+DEMO-APAAR-0701,Student Demo 701,DEMO001-ECE-0701,ECE,2025-2026,2025-08-18,GENERAL,REGULAR,false
+DEMO-APAAR-0702,Student Demo 702,DEMO001-ECE-0702,ECE,2025-2026,2025-08-18,GENERAL,REGULAR,false
+DEMO-APAAR-0703,Student Demo 703,DEMO001-ECE-0703,ECE,2025-2026,2025-08-18,GENERAL,REGULAR,false
