@@ -1,3 +1,4 @@
+import os
 import datetime
 import hmac
 import hashlib
@@ -46,9 +47,12 @@ def create_verification_reference(
     purpose: str,
     expires_in_hours: int,
     user_context: dict,
-    base_verify_url: str = "http://localhost:8000/api/v1/verify"
+    base_verify_url: Optional[str] = None
 ) -> Dict[str, Any]:
     """Generates an opaque, expiring verification reference token."""
+    if not base_verify_url:
+        api_base = os.getenv("API_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
+        base_verify_url = f"{api_base}/api/v1/verify"
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(

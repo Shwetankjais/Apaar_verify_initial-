@@ -7,6 +7,8 @@ from backend.app.models.validation_issue import ValidationIssue
 from backend.app.models.verification_ref import VerificationReference
 from backend.app.models.academic_event import AcademicEvent
 from backend.app.models.audit_event import AuditEvent
+from backend.app.models.user import User
+from backend.app.models.document_submission import DocumentSubmission
 
 __all__ = [
     "Institution",
@@ -17,6 +19,7 @@ __all__ = [
     "ValidationIssue",
     "VerificationReference",
     "AcademicEvent",
-    "AuditEvent"
+    "AuditEvent",
+    "User",
+    "DocumentSubmission"
 ]
-

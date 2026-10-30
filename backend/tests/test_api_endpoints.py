@@ -36,7 +36,7 @@ def test_institution_intake():
     assert len(data["intakes"]) >= 2
 
 def test_dashboard_summary():
-    response = client.get("/api/v1/dashboard/summary")
+    response = client.get("/api/v1/dashboard/summary", headers={"X-User-Role": "aicte_admin"})
     assert response.status_code == 200
     data = response.json()
     assert data["total_institutions"] >= 3
@@ -52,7 +52,12 @@ def test_upload_validate_preview():
     files = {"file": ("test.csv", csv_content.encode("utf-8"), "text/csv")}
     data = {"institution_id": "DEMO001", "academic_year": "2025-2026"}
     
-    response = client.post("/api/v1/uploads/validate", files=files, data=data)
+    response = client.post(
+        "/api/v1/uploads/validate",
+        files=files,
+        data=data,
+        headers={"X-User-Role": "institution_admin", "X-Institution-Id": "DEMO001"}
+    )
     assert response.status_code == 200
     res = response.json()
     assert res["total_rows"] == 2

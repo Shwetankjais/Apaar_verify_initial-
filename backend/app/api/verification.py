@@ -6,7 +6,7 @@ from backend.app.schemas.verification import (
     VerificationCreateResponse,
     VerificationCheckResponse
 )
-from backend.app.services.auth_service import get_current_user
+from backend.app.services.auth_service import get_current_user, get_optional_current_user
 from backend.app.services.verification_service import (
     create_verification_reference,
     verify_reference_code,
@@ -37,7 +37,7 @@ def request_verification_token(
 def check_verification_reference(
     reference: str,
     db: Session = Depends(get_db),
-    user_context: dict = Depends(get_current_user)
+    user_context: dict = Depends(get_optional_current_user)
 ):
     """
     Publicly accessible verification endpoint.

@@ -21,12 +21,26 @@ def list_students(
     db: Session = Depends(get_db),
     user_context: dict = Depends(get_current_user)
 ):
-    """Lists students with masked identifiers. Scoped by institution if user is an institution officer."""
+    """
+    Lists students with masked identifiers.
+    Students can ONLY see their own record.
+    Institution staff can ONLY see students in their own institution.
+    """
     role = user_context["role"]
     query = db.query(Enrolment).join(Student, Enrolment.student_id == Student.id)
 
-    if role == "institution_officer" and user_context.get("institution_id"):
-        query = query.filter(Enrolment.institution_id == user_context["institution_id"])
+    if role == "student":
+        # Strict student isolation
+        std_id = user_context.get("student_id")
+        if std_id:
+            query = query.filter(Student.id == std_id)
+        else:
+            # Look up by email if student_id not explicitly set
+            query = query.filter(Student.email == user_context.get("email"))
+    elif role in ["institution_admin", "institution_approver", "institution_officer"]:
+        inst_id = user_context.get("institution_id")
+        if inst_id:
+            query = query.filter(Enrolment.institution_id == inst_id)
     elif institution_id:
         query = query.filter(Enrolment.institution_id == institution_id)
 
@@ -44,7 +58,13 @@ def list_students(
 
     enrolments = query.offset(offset).limit(limit).all()
     results = []
+    seen_student_ids = set()
+
     for enr in enrolments:
+        if enr.student_id in seen_student_ids:
+            continue
+        seen_student_ids.add(enr.student_id)
+
         student = db.query(Student).filter(Student.id == enr.student_id).first()
         if student:
             results.append(StudentResponse(
@@ -64,17 +84,31 @@ def get_student(
     db: Session = Depends(get_db),
     user_context: dict = Depends(get_current_user)
 ):
+    role = user_context["role"]
     student = db.query(Student).filter(Student.id == id).first()
     if not student:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Student '{id}' not found.")
 
+    # Student isolation check
+    if role == "student":
+        caller_student_id = user_context.get("student_id")
+        if caller_student_id and caller_student_id != student.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Students are strictly permitted to view only their own academic records."
+            )
+        elif not caller_student_id and student.email != user_context.get("email"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Students are strictly permitted to view only their own academic records."
+            )
+
     enrolments = db.query(Enrolment).filter(Enrolment.student_id == student.id).all()
     
     # Institution officer check: must have at least one enrolment in user's institution
-    role = user_context["role"]
-    if role == "institution_officer" and user_context.get("institution_id"):
-        has_enrolment = any(e.institution_id == user_context["institution_id"] for e in enrolments)
-        if not has_enrolment:
+    if role in ["institution_admin", "institution_approver", "institution_officer"]:
+        user_inst = user_context.get("institution_id")
+        if user_inst and not any(e.institution_id == user_inst for e in enrolments):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied: Student does not have an enrolment record at your institution."
@@ -113,4 +147,3 @@ def get_student(
         current_status=current_status or "INACTIVE",
         enrolments=enr_briefs
     )
-

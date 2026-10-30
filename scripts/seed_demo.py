@@ -25,8 +25,11 @@ from backend.app.models.student import Student
 from backend.app.models.enrolment import Enrolment
 from backend.app.models.academic_event import AcademicEvent
 from backend.app.models.verification_ref import VerificationReference
-from backend.app.services.auth_service import generate_apaar_lookup_token, mask_apaar_id
+from backend.app.models.user import User
+from backend.app.models.document_submission import DocumentSubmission
+from backend.app.services.auth_service import generate_apaar_lookup_token, mask_apaar_id, hash_password
 from backend.app.services.verification_service import sign_verification_payload
+from backend.app.config import settings
 
 def seed_all():
     print("Initializing database tables...")
@@ -34,9 +37,11 @@ def seed_all():
     db = SessionLocal()
 
     # Clear existing demo data for clean repeatable run
+    db.query(DocumentSubmission).delete()
     db.query(AcademicEvent).delete()
     db.query(VerificationReference).delete()
     db.query(Enrolment).delete()
+    db.query(User).delete()
     db.query(Student).delete()
     db.query(ApprovedIntake).delete()
     db.query(Institution).delete()
@@ -195,6 +200,119 @@ def seed_all():
 
     db.commit()
     print(f"Database successfully seeded! Total students in database: {student_counter - 1}")
+
+    # Seed User Accounts for RBAC
+    print("Seeding RBAC Users...")
+    student_10 = db.query(Student).filter(Student.student_name == "Student Demo 010").first()
+    default_pwd_hash = hash_password("DemoPass123!")
+
+    users = [
+        User(
+            email="admin@aicte.gov.in",
+            hashed_password=default_pwd_hash,
+            full_name="Dr. Ramesh Sharma (AICTE Admin)",
+            role="aicte_admin",
+            institution_id=None
+        ),
+        User(
+            email="officer@mit-demo.ac.in",
+            hashed_password=default_pwd_hash,
+            full_name="Prof. Ananya Rao (MIT Nodal Officer)",
+            role="institution_admin",
+            institution_id="DEMO001"
+        ),
+        User(
+            email="approver@mit-demo.ac.in",
+            hashed_password=default_pwd_hash,
+            full_name="Dr. Suresh Menon (MIT Verification Cell)",
+            role="institution_approver",
+            institution_id="DEMO001"
+        ),
+        User(
+            email="officer@dec-demo.ac.in",
+            hashed_password=default_pwd_hash,
+            full_name="Prof. Rajesh Kulkarni (Deccan Admin)",
+            role="institution_admin",
+            institution_id="DEMO002"
+        ),
+        User(
+            email="student@demo.ac.in",
+            hashed_password=default_pwd_hash,
+            full_name="Student Demo 010",
+            role="student",
+            student_id=student_10.id if student_10 else None
+        ),
+        User(
+            email="auditor@aicte.gov.in",
+            hashed_password=default_pwd_hash,
+            full_name="Vikramaditya Verma (CAG Auditor)",
+            role="auditor",
+            institution_id=None
+        )
+    ]
+    db.add_all(users)
+    db.commit()
+    print(f"Seeded {len(users)} authentication accounts.")
+
+    # Seed Sample Document Submissions
+    print("Seeding Sample Document Submissions...")
+    settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    sample_pdf_bytes = b"%PDF-1.4\n1 0 obj\n<< /Title (Demo Academic Document) >>\nendobj\ntrailer\n<<>>\n%%EOF"
+    
+    file1_name = "demo_marksheet_0010.pdf"
+    file1_path = str(settings.STORAGE_DIR / file1_name)
+    with open(file1_path, "wb") as f:
+        f.write(sample_pdf_bytes)
+        
+    file2_name = "demo_tc_0010.pdf"
+    file2_path = str(settings.STORAGE_DIR / file2_name)
+    with open(file2_path, "wb") as f:
+        f.write(sample_pdf_bytes)
+
+    import hashlib
+    sha256_hash = hashlib.sha256(sample_pdf_bytes).hexdigest()
+
+    doc_submissions = [
+        DocumentSubmission(
+            application_no="APAAR-DOC-2026-0001",
+            student_id=student_10.id if student_10 else None,
+            student_name="Student Demo 010",
+            student_apaar="DEMO-APAAR-0010",
+            institution_id="DEMO001",
+            course_code="CSE",
+            academic_year="2025-2026",
+            document_type="CLASS_12_MARKSHEET",
+            file_path=file1_path,
+            original_filename="class_12_marksheet_verified.pdf",
+            file_size_bytes=len(sample_pdf_bytes),
+            mime_type="application/pdf",
+            file_hash_sha256=sha256_hash,
+            status="SUBMITTED",
+            deficiency_notes=None
+        ),
+        DocumentSubmission(
+            application_no="APAAR-DOC-2026-0002",
+            student_id=student_10.id if student_10 else None,
+            student_name="Student Demo 010",
+            student_apaar="DEMO-APAAR-0010",
+            institution_id="DEMO001",
+            course_code="CSE",
+            academic_year="2025-2026",
+            document_type="TRANSFER_CERTIFICATE",
+            file_path=file2_path,
+            original_filename="migration_transfer_cert.pdf",
+            file_size_bytes=len(sample_pdf_bytes),
+            mime_type="application/pdf",
+            file_hash_sha256=sha256_hash,
+            status="DEFICIENCY_RAISED",
+            deficiency_notes="Seal/signature missing on page 2. Please re-upload verified signed copy from previous college.",
+            reviewer_id="approver@mit-demo.ac.in",
+            reviewer_comments="Discrepancy noted during initial scrutiny on 2026-10-25."
+        )
+    ]
+    db.add_all(doc_submissions)
+    db.commit()
+    print(f"Seeded {len(doc_submissions)} document submission records.")
 
     # Generate CSVs
     data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))

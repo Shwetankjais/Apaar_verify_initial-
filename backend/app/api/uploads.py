@@ -8,10 +8,12 @@ from backend.app.schemas.submission import (
     SubmissionCommitRequest,
     SubmissionResponse
 )
-from backend.app.services.auth_service import get_current_user, verify_institution_access
+from backend.app.services.auth_service import get_current_user, require_roles, verify_institution_access
 from backend.app.services.import_service import preview_upload_file, commit_submission_transactional
 
 router = APIRouter(prefix="/uploads", tags=["Uploads & Ingestion"])
+
+ALLOWED_UPLOAD_ROLES = ["aicte_admin", "institution_admin", "institution_approver", "institution_officer"]
 
 @router.post("/validate", response_model=SubmissionPreviewResponse)
 async def validate_file_preview(
@@ -19,7 +21,7 @@ async def validate_file_preview(
     institution_id: str = Form(...),
     academic_year: str = Form("2025-2026"),
     db: Session = Depends(get_db),
-    user_context: dict = Depends(get_current_user)
+    user_context: dict = Depends(require_roles(ALLOWED_UPLOAD_ROLES))
 ):
     """
     Previews imported spreadsheet rows and evaluates deterministic validation rules.
@@ -40,7 +42,7 @@ async def validate_file_preview(
 def submit_batch_commit(
     request: SubmissionCommitRequest,
     db: Session = Depends(get_db),
-    user_context: dict = Depends(get_current_user)
+    user_context: dict = Depends(require_roles(ALLOWED_UPLOAD_ROLES))
 ):
     """
     Commits eligible rows inside an atomic database transaction.
@@ -63,11 +65,11 @@ def list_submissions(
     institution_id: Optional[str] = None,
     academic_year: Optional[str] = None,
     db: Session = Depends(get_db),
-    user_context: dict = Depends(get_current_user)
+    user_context: dict = Depends(require_roles(ALLOWED_UPLOAD_ROLES + ["auditor"]))
 ):
     query = db.query(Submission)
     role = user_context["role"]
-    if role == "institution_officer" and user_context.get("institution_id"):
+    if role in ["institution_admin", "institution_approver", "institution_officer"] and user_context.get("institution_id"):
         query = query.filter(Submission.institution_id == user_context["institution_id"])
     elif institution_id:
         query = query.filter(Submission.institution_id == institution_id)
@@ -81,11 +83,10 @@ def list_submissions(
 def get_submission(
     id: str,
     db: Session = Depends(get_db),
-    user_context: dict = Depends(get_current_user)
+    user_context: dict = Depends(require_roles(ALLOWED_UPLOAD_ROLES + ["auditor"]))
 ):
     sub = db.query(Submission).filter(Submission.id == id).first()
     if not sub:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found.")
     verify_institution_access(user_context, sub.institution_id)
     return sub
-

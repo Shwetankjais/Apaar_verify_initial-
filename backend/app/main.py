@@ -6,6 +6,8 @@ from backend.app.database import engine, Base
 import backend.app.models # Register all models
 
 # API Routers
+from backend.app.api.auth import router as auth_router
+from backend.app.api.documents import router as documents_router
 from backend.app.api.institutions import router as institutions_router
 from backend.app.api.uploads import router as uploads_router
 from backend.app.api.students import router as students_router
@@ -51,12 +53,15 @@ def health_check():
 def root():
     return {
         "message": "Welcome to APAAR Verify by Sutrāyukti (AICTE Engine)",
+        "tagline_hi": "मेरा अपार, मेरा भविष्य",
+        "tagline_en": "My APAAR, My Future",
         "docs": "/docs",
-        "health": "/health",
-        "tagline": "Trusted academic records. Explainable validation. Secure verification."
+        "health": "/health"
     }
 
 # Register API v1 routes
+app.include_router(auth_router, prefix=settings.API_V1_STR)
+app.include_router(documents_router, prefix=settings.API_V1_STR)
 app.include_router(institutions_router, prefix=settings.API_V1_STR)
 app.include_router(uploads_router, prefix=settings.API_V1_STR)
 app.include_router(students_router, prefix=settings.API_V1_STR)
@@ -70,5 +75,6 @@ app.include_router(policy_router, prefix=settings.API_V1_STR)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
-
+    import os
+    port = int(os.getenv("API_PORT", 8001))
+    uvicorn.run("backend.app.main:app", host="0.0.0.0", port=port, reload=True)

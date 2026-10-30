@@ -6,7 +6,7 @@ from backend.app.models.institution import Institution
 from backend.app.models.intake import ApprovedIntake
 from backend.app.schemas.institution import InstitutionResponse
 from backend.app.schemas.intake import InstitutionIntakeSummary
-from backend.app.services.auth_service import get_current_user, verify_institution_access
+from backend.app.services.auth_service import get_optional_current_user, verify_institution_access
 from backend.app.services.intake_service import get_institution_intake_summary
 
 router = APIRouter(prefix="/institutions", tags=["Institutions"])
@@ -14,12 +14,12 @@ router = APIRouter(prefix="/institutions", tags=["Institutions"])
 @router.get("", response_model=List[InstitutionResponse])
 def list_institutions(
     db: Session = Depends(get_db),
-    user_context: dict = Depends(get_current_user)
+    user_context: dict = Depends(get_optional_current_user)
 ):
     """Lists institutions visible to the current role. Officers only see their own institution."""
     query = db.query(Institution)
     role = user_context["role"]
-    if role == "institution_officer" and user_context.get("institution_id"):
+    if role in ["institution_officer", "institution_admin", "institution_approver"] and user_context.get("institution_id"):
         query = query.filter(Institution.id == user_context["institution_id"])
     
     insts = query.all()
@@ -42,7 +42,7 @@ def list_institutions(
 def get_institution(
     id: str,
     db: Session = Depends(get_db),
-    user_context: dict = Depends(get_current_user)
+    user_context: dict = Depends(get_optional_current_user)
 ):
     verify_institution_access(user_context, id)
     inst = db.query(Institution).filter(Institution.id == id).first()
@@ -66,7 +66,7 @@ def get_intake_summary(
     id: str,
     academic_year: str = "2025-2026",
     db: Session = Depends(get_db),
-    user_context: dict = Depends(get_current_user)
+    user_context: dict = Depends(get_optional_current_user)
 ):
     verify_institution_access(user_context, id)
     intake_details = get_institution_intake_summary(db, id, academic_year)
