@@ -2,16 +2,64 @@ import os
 import requests
 from typing import Optional, Dict, Any, List
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8001")
+LIVE_PRODUCTION_BACKEND = "https://apaar-verify-initial.onrender.com"
+LOCAL_DEV_BACKEND = "http://127.0.0.1:8001"
+
+def resolve_api_base_url() -> str:
+    """
+    Authoritative backend URL resolver for APAAR Verify.
+    1. Reads Streamlit secrets (st.secrets["API_BASE_URL"]) if configured.
+    2. Reads environment variable (API_BASE_URL) if configured.
+    3. Falls back to https://apaar-verify-initial.onrender.com only for production environments
+       (e.g. Streamlit Community Cloud or APP_ENV=production).
+    4. Preserves http://127.0.0.1:8001 as the local development default.
+    """
+    # 1. Check Streamlit secrets (Community Cloud)
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            try:
+                secret_url = st.secrets.get("API_BASE_URL")
+                if secret_url and str(secret_url).strip():
+                    return str(secret_url).strip().rstrip("/")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 2. Check environment variable
+    env_url = os.getenv("API_BASE_URL", "").strip()
+    if env_url:
+        return env_url.rstrip("/")
+
+    # 3. Production environment detection
+    # Checks standard production flags, Streamlit Cloud indicators, and cloud container environments
+    is_production = (
+        os.getenv("APP_ENV", "").lower() in ("production", "prod")
+        or os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
+        or os.getenv("STREAMLIT_ENV", "").lower() in ("production", "prod")
+        or os.getenv("IS_STREAMLIT_CLOUD", "").lower() == "true"
+        or os.getenv("STREAMLIT_SHARING_HOST") is not None
+        or os.getenv("HOSTNAME", "").startswith("streamlit")
+        or os.getenv("USER") == "appuser"
+        or (os.path.exists("/app") and not os.path.exists("/Users"))
+    )
+    if is_production:
+        return LIVE_PRODUCTION_BACKEND
+
+    # 4. Local development default
+    return LOCAL_DEV_BACKEND
+
+API_BASE_URL = resolve_api_base_url()
 
 class ApiClient:
     """
     Centralized API client for APAAR Verify.
-    Communicates with FastAPI backend on port 8001 (or configured API_BASE_URL).
+    Communicates with FastAPI backend on port 8001 locally or https://apaar-verify-initial.onrender.com in production.
     Features robust connection error handling, automatic retry fallback, and graceful degradation.
     """
-    def __init__(self, base_url: str = API_BASE_URL, token: Optional[str] = None):
-        self.base_url = (base_url or os.getenv("API_BASE_URL", "http://127.0.0.1:8001")).rstrip("/")
+    def __init__(self, base_url: Optional[str] = None, token: Optional[str] = None):
+        self.base_url = (base_url or resolve_api_base_url()).rstrip("/")
         self.token = token
         self.last_error: Optional[str] = None
         self.is_offline: bool = False
@@ -79,8 +127,10 @@ class ApiClient:
             return None
 
     def get_health(self) -> Dict[str, Any]:
-        """Check backend health status on port 8001 (or fallback 127.0.0.1 <-> localhost)."""
-        res = self._request("GET", "/health", timeout=3)
+        """Check backend health status on configured base_url."""
+        # Render cloud free-tier instances may sleep on idle and require up to 15s for cold start
+        timeout = 15 if "onrender.com" in self.base_url else 4
+        res = self._request("GET", "/health", timeout=timeout)
         if res is not None and res.status_code == 200:
             try:
                 data = res.json()
@@ -89,37 +139,40 @@ class ApiClient:
             except Exception:
                 pass
         
-        # Smart fallback if user accessed via localhost vs 127.0.0.1
-        alt_base = "http://localhost:8001" if "127.0.0.1" in self.base_url else "http://127.0.0.1:8001"
-        try:
-            alt_res = requests.get(f"{alt_base}/health", timeout=2)
-            if alt_res.status_code == 200:
-                self.base_url = alt_base
-                self.is_offline = False
-                self.last_error = None
-                return alt_res.json()
-        except Exception:
-            pass
+        # Only do localhost / 127.0.0.1 swap if the configured base_url is actually local
+        if "127.0.0.1" in self.base_url or "localhost" in self.base_url:
+            alt_base = "http://localhost:8001" if "127.0.0.1" in self.base_url else "http://127.0.0.1:8001"
+            try:
+                alt_res = requests.get(f"{alt_base}/health", timeout=2)
+                if alt_res.status_code == 200:
+                    self.base_url = alt_base
+                    self.is_offline = False
+                    self.last_error = None
+                    return alt_res.json()
+            except Exception:
+                pass
 
         self.is_offline = True
         return {
             "status": "offline",
             "service": "APAAR Verify Core API",
             "database": "disconnected",
-            "error": self.last_error or "FastAPI offline on port 8001"
+            "error": self.last_error or f"FastAPI engine unreachable on {self.base_url}"
         }
 
     # --- Authentication & Session ---
     def login(self, email: str, password: str) -> Dict[str, Any]:
         """Authenticate user against backend, returning JWT access token and user profile."""
         payload = {"email": email.strip(), "password": password.strip()}
-        res = self._request("POST", "/api/v1/auth/login", json=payload, timeout=8)
+        res = self._request("POST", "/api/v1/auth/login", json=payload, timeout=12)
         if res is None:
+            is_local = "127.0.0.1" in self.base_url or "localhost" in self.base_url
+            hint = "Ensure uvicorn is running: python -m uvicorn backend.app.main:app --port 8001" if is_local else "The live backend on Render may be waking up. Please retry in 15-20 seconds."
             return {
                 "status_code": 503,
                 "error": True,
                 "data": {
-                    "detail": f"Backend Verification Engine is currently unreachable on {self.base_url}. Please ensure uvicorn is running: python -m uvicorn backend.app.main:app --port 8001"
+                    "detail": f"Backend Verification Engine unreachable on {self.base_url}. {hint}"
                 }
             }
         try:

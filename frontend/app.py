@@ -435,18 +435,22 @@ selected_section = st.session_state["current_nav"]
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Core Infrastructure Status:**")
 clean_base = client.base_url.replace('http://', '').replace('https://', '')
+is_local_backend = "127.0.0.1" in client.base_url or "localhost" in client.base_url
+
 if api_online:
+    mode_tag = "Local Engine" if is_local_backend else "Live Render Cloud"
     st.sidebar.markdown(f"""
     <div style="background:#E6EFE9; border:1px solid #AECBB7; border-radius:8px; padding:8px 12px;">
         <span style="color:#2B4D36; font-weight:700; font-size:0.82rem;">● FastAPI REST Engine: Online</span>
-        <div style="font-size:0.72rem; color:#4E6054; margin-top:2px;">{clean_base} • Database Connected</div>
+        <div style="font-size:0.72rem; color:#4E6054; margin-top:2px;">{clean_base} • {mode_tag}</div>
     </div>
     """, unsafe_allow_html=True)
 else:
+    status_hint = "Check uvicorn on port 8001" if is_local_backend else "Cloud waking up (free tier cold start)"
     st.sidebar.markdown(f"""
     <div style="background:#FDF1EA; border:1px solid #ECC1AC; border-radius:8px; padding:8px 12px;">
         <span style="color:#9E4314; font-weight:700; font-size:0.82rem;">○ FastAPI Offline ({clean_base})</span>
-        <div style="font-size:0.72rem; color:#854019; margin-top:2px;">Check uvicorn service on port 8001</div>
+        <div style="font-size:0.72rem; color:#854019; margin-top:2px;">{status_hint}</div>
     </div>
     """, unsafe_allow_html=True)
     if st.sidebar.button("🔄 Check Engine Status", key="btn_check_engine", use_container_width=True):
@@ -509,11 +513,16 @@ if not user:
 
 # Global Service Offline Warning Notice
 if not api_online:
+    if is_local_backend:
+        help_msg = f"The frontend is attempting to connect to local backend on <strong>{client.base_url}</strong>. Ensure uvicorn is running: <code>python -m uvicorn backend.app.main:app --port 8001</code>"
+    else:
+        help_msg = f"Connecting to live backend on <strong>{client.base_url}</strong>. Free-tier cloud instances spin down on idle and may take 30–40 seconds to cold start. Please wait a moment and click <strong>Check Engine Status</strong> in the sidebar."
+
     st.markdown(f"""
     <div style="background:#FDF1EA; border-left:4px solid #BF531D; border-radius:8px; padding:12px 18px; margin-bottom:18px;">
         <strong style="color:#9E4314; font-size:0.92rem;">⚠️ FastAPI Backend Engine Initializing or Offline ({client.base_url})</strong>
         <p style="color:#525E56; font-size:0.82rem; margin:3px 0 0 0;">
-            The frontend is attempting to connect to the backend on <strong>{client.base_url}</strong>. Ensure uvicorn is running: <code>python -m uvicorn backend.app.main:app --port 8001</code>
+            {help_msg}
         </p>
     </div>
     """, unsafe_allow_html=True)
